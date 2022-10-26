@@ -1,5 +1,4 @@
-
-// take from here https://github.com/semaphore-protocol/semaphore/blob/68779e90a0db120d9c36143c5f48ca6fd1a2a159/packages/circuits/semaphore.circom
+// taken from here https://github.com/semaphore-protocol/semaphore/blob/68779e90a0db120d9c36143c5f48ca6fd1a2a159/packages/circuits/semaphore.circom
 pragma circom 2.0.0;
 
 include "../node_modules/circomlib/circuits/poseidon.circom";
