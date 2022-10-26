@@ -1,0 +1,17 @@
+node_modules/
+.DS_Store
+.openzeppelin
+.env
+*.sw*
+
+#Hardhat files
+cache
+artifacts
+
+*.sym
+*_cpp
+*_js
+*.r1cs
+*.ptau
+*.zkey
+verification_key.json
