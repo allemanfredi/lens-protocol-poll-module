@@ -4,14 +4,9 @@ const { solidity } = require('ethereum-waffle')
 const { Identity } = require('@semaphore-protocol/identity')
 const { Group } = require('@semaphore-protocol/group')
 const {
-  generateNullifierHash,
   generateProof,
-  packToSolidityProof,
-  PublicSignals,
-  SolidityProof,
+  packToSolidityProof
 } = require('@semaphore-protocol/proof')
-
-const { generatePrivateVote } = require('./utils')
 
 use(solidity)
 
@@ -22,8 +17,6 @@ const INTERACTION_LOGIC_ADDRESS = '0xb05BAe098D2b0E3048DE27F1931E50b0200a043B'
 const PROFILE_TOKEN_URI_LOGIC_ADDRESS = '0x3FA902A571E941dCAc6081d57917994DDB0F9A9d'
 const PUBLISHING_LOGIC_ADDRESS = '0x7f9bfF8493F821111741b93429A6A6F79DC546F0'
 const MOCK_URI = 'https://ipfs.io/ipfs/QmbWqxBEKC3P8tqsKc98xmWNzrzDtRLMiMPL8wBuTGsMnR'
-const USER_1_ADDRESS = '0x8eC94086A724cbEC4D37097b8792cE99CaDCd520'
-const USER_1_PROFILE_ID = 36
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 const GOVERNANCE_ADDRESS = '0xf94b90bbeee30996019babd12cecddccf68331de'
 const MOCK_PROFILE_HANDLE_CREATOR = 'plant1ghost.eth'
@@ -63,7 +56,7 @@ describe('PollModule', () => {
     const signers = await ethers.getSigners()
     creator = signers[0]
     relay = signers[1]
-    user1 = await ethers.getImpersonatedSigner(USER_1_ADDRESS)
+    user1 = signers[2]
 
     const verifier = await Verifier.deploy()
     pollModule = await PollModule.deploy(LENS_HUB_ADDRESS, verifier.address, relay.address)
@@ -108,8 +101,8 @@ describe('PollModule', () => {
   })
 
   it('should be able to vote by commenting a post', async () => {
-    const signedMessage = 'message' // in real application this is a signature made with your eth pk.
-    const identity = new Identity(signedMessage)
+    const signedMessage = await user1.signMessage('message')
+    const identity = new Identity(signedMessage.toString())
     const pollId = 1
     const vote = ethers.utils.formatBytes32String(1) // in case there will be a reveal phase this could be the commitment -> generatePrivateVote(1, 'hash(messageSignedWithWallet)')
 
@@ -139,6 +132,7 @@ describe('PollModule', () => {
 
     await pollModule.connect(relay).registerIdentity(pollId, identity.generateCommitment())
 
+    // relay should check that user1 owns a Lens Protocol profile
     await expect(
       lensHub.connect(relay).comment({
         profileId: relayProfileId,
@@ -157,5 +151,66 @@ describe('PollModule', () => {
     )
       .to.emit(pollModule, 'VoteAdded')
       .withArgs(pollId, vote)
+  })
+
+  it('should not be able to double vote', async () => {
+    const signedMessage = await user1.signMessage('message')
+    const identity = new Identity(signedMessage)
+    const pollId = 2
+    const vote = ethers.utils.formatBytes32String(1)
+
+    const group = new Group(20)
+    group.addMembers([identity.generateCommitment()])
+
+    const fullProof = await generateProof(identity, group, pollId, vote, {
+      wasmFilePath: WASM_FILE_PATH,
+      zkeyFilePath: ZKEY_FILE_PATH,
+    })
+
+    const publicSignals = fullProof.publicSignals
+    const solidityProof = packToSolidityProof(fullProof.proof)
+
+    await lensHub.connect(creator).post({
+      profileId: creatorProfileId,
+      contentURI: MOCK_URI,
+      collectModule: freeCollectModule.address,
+      collectModuleInitData: ethers.utils.defaultAbiCoder.encode(['bool'], [true]),
+      referenceModule: pollModule.address,
+      referenceModuleInitData: '0x',
+    })
+
+    await pollModule.connect(relay).registerIdentity(pollId, identity.generateCommitment())
+
+    await lensHub.connect(relay).comment({
+      profileId: relayProfileId,
+      contentURI: MOCK_URI,
+      profileIdPointed: creatorProfileId,
+      pubIdPointed: 2,
+      referenceModuleData: ethers.utils.defaultAbiCoder.encode(
+        ['uint256', 'bytes32', 'uint256[8]'],
+        [publicSignals.nullifierHash, vote, solidityProof]
+      ),
+      collectModule: freeCollectModule.address,
+      collectModuleInitData: ethers.utils.defaultAbiCoder.encode(['bool'], [true]),
+      referenceModule: ZERO_ADDRESS,
+      referenceModuleInitData: [],
+    })
+
+    await expect(
+      lensHub.connect(relay).comment({
+        profileId: relayProfileId,
+        contentURI: MOCK_URI,
+        profileIdPointed: creatorProfileId,
+        pubIdPointed: 2,
+        referenceModuleData: ethers.utils.defaultAbiCoder.encode(
+          ['uint256', 'bytes32', 'uint256[8]'],
+          [publicSignals.nullifierHash, vote, solidityProof]
+        ),
+        collectModule: freeCollectModule.address,
+        collectModuleInitData: ethers.utils.defaultAbiCoder.encode(['bool'], [true]),
+        referenceModule: ZERO_ADDRESS,
+        referenceModuleInitData: [],
+      })
+    ).to.be.revertedWith('DoubleVoting()')
   })
 })

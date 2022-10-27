@@ -77,7 +77,9 @@ contract PollModule is ModuleBase, IReferenceModule, Context {
 
         emit PollCreated(pollId, _profileId);
 
-        pollsCounter++;
+        unchecked {
+            pollsCounter++;
+        }
         return new bytes(0);
     }
 
